@@ -2,11 +2,13 @@ import pandas as pd
 import mysql.connector
 
 #1. Importer le fichier CSV
-data = pd.read_csv("../clean_data/ValeursFoncieres_enrichies.csv")
-
-#2. Formatage des dates pour MYSQL
-data['Date mutation'] = pd.to_datetime(data['Date mutation'], dayfirst=True, errors='coerce')
-data['Date mutation'] = data['Date mutation'].dt.strftime('%Y-%m-%d')
+data = pd.read_csv("clean_data/ValeursFoncieres_enrichies.csv",dtype={
+                       "Code commune": str,
+                        "No plan": str,
+                        "Code type local": str,
+                        "Code departement": str,
+                        "Commune": str,
+                        })
 
 #3. Remplace les NaN par None
 data = data.where(pd.notnull(data), None)
@@ -47,24 +49,31 @@ CREATE TABLE IF NOT EXISTS transactions (
     `Surface terrain` FLOAT,
     `prix_m2` FLOAT,
     `CodeINSEE` VARCHAR(10),
-    `Population` INT
+    `Population` INT,
+    `dens_pop` FLOAT,
+    `LIB_DEP` VARCHAR(50)   
 );
 """)
 
 #8. Insertion des données dans le BDD
-for _, row in data.iterrows():
+batch_size = 1000
+rows = [clean_row(row) for _, row in data.iterrows()]
+
+for i in range(0, len(rows), batch_size):
+    batch = rows[i:i+batch_size]
     try:
-        cursor.execute("""
+        cursor.executemany("""
             INSERT INTO transactions (
                 `Date mutation`, `Nature mutation`, `Valeur fonciere`,
                 `Code postal`, `Commune`, `Code departement`, `Code commune`,
                 `Section`, `No plan`, `Code type local`, `Type local`,
                 `Surface reelle bati`, `Nombre pieces principales`,
-                `Surface terrain`, `prix_m2`, `CodeINSEE`, `Population`
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, clean_row(row))
+                `Surface terrain`, `prix_m2`, `CodeINSEE`, `Population`, `dens_pop`, `LIB_DEP`
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, batch)
+        conn.commit()
     except Exception as e:
-        print(f"Erreur sur la ligne {row.name} : {e}")
+        print(f"Erreur lors de l'insertion du batch {i // batch_size + 1} : {e}")
         continue
 
 #9 Enregistrer les changement
